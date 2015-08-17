@@ -10,6 +10,7 @@
 
 @implementation F
 static dispatch_queue_t F_queue;
+static BOOL F_concurrently = NO;
 
 + (void) useConcurrency {
     NSLog(@"ATTENTION - USING CONCURRENCY WILL RESULT IN A NON-SEQUENTIAL EXECUTION OF THE PASSED BLOCKS");
@@ -47,7 +48,7 @@ static dispatch_queue_t F_queue;
     else {
         [arr enumerateObjectsUsingBlock:^(__strong id obj, NSUInteger idx, BOOL *stop) {
             block(obj);
-        }];        
+        }];
     }
 }
 
@@ -60,8 +61,8 @@ static dispatch_queue_t F_queue;
     else {
         [arr enumerateObjectsUsingBlock:^(__strong id obj, NSUInteger idx, BOOL *stop) {
             block(obj, idx);
-        }];        
-    }    
+        }];
+    }
 }
 
 + (void) eachInDict:(NSDictionary *) dict withBlock:(VoidIteratorDictBlock) block {
@@ -75,16 +76,16 @@ static dispatch_queue_t F_queue;
     else {
         [dict enumerateKeysAndObjectsUsingBlock:^(__strong id key, __strong id obj, BOOL *stop) {
             block(key, obj);
-        }];        
+        }];
     }
 }
 
 
 + (NSArray *) mapArray:(NSArray *) arr withBlock:(MapArrayBlock) block {
     NSMutableArray *mutArr = [NSMutableArray arrayWithCapacity:[arr count]];
-    
+
     if (F_concurrently) {
-        for (int i=0; i < [arr count]; i++) {
+        for (NSUInteger i=0; i < [arr count]; i++) {
             [mutArr addObject:[NSNull null]];
         }
         dispatch_semaphore_t itemLock = dispatch_semaphore_create(1);
@@ -98,14 +99,14 @@ static dispatch_queue_t F_queue;
     else {
         for (id obj in arr) {
             [mutArr addObject:block(obj)];
-        }        
+        }
     }
-    return [NSArray arrayWithArray:mutArr];    
+    return [NSArray arrayWithArray:mutArr];
 }
 
 + (NSDictionary *) mapDict:(NSDictionary *) dict withBlock:(MapDictBlock) block {
     NSMutableDictionary *mutDict = [NSMutableDictionary dictionaryWithCapacity:[[dict allKeys] count]];
-    
+
     if (F_concurrently) {
         dispatch_semaphore_t itemLock = dispatch_semaphore_create(2);
         NSArray *keys = [dict allKeys];
@@ -121,19 +122,19 @@ static dispatch_queue_t F_queue;
         for (id key in dict) {
             id obj = [dict objectForKey:key];
             [mutDict setValue:block(key, obj) forKey:key];
-        }        
+        }
     }
     return [NSDictionary dictionaryWithDictionary:mutDict];
 }
 
-+ (NSObject *) reduceArray:(NSArray *) arr withBlock:(ReduceArrayBlock) block andInitialMemo:(NSObject *) memo {
++ (NSObject *) reduceArray:(NSArray *) arr withBlock:(ReduceArrayBlock) block andInitialMemo:(__strong id) memo {
     for (id obj in arr) {
         memo = block(memo, obj);
     }
     return memo;
 }
 
-+ (NSObject *) reduceDictionary:(NSDictionary *) dict withBlock:(ReduceDictBlock) block andInitialMemo:(NSObject *) memo {
++ (NSObject *) reduceDictionary:(NSDictionary *) dict withBlock:(ReduceDictBlock) block andInitialMemo:(__strong id) memo {
     for (id key in dict) {
         id obj = [dict objectForKey:key];
         memo = block(memo, key, obj);
@@ -144,27 +145,27 @@ static dispatch_queue_t F_queue;
 + (NSArray *) filterArray:(NSArray *) arr withBlock:(BoolArrayBlock) block {
     if (F_concurrently) {
         NSMutableArray *nilArray = [NSMutableArray arrayWithCapacity:[arr count]];
-        for (int i=0; i < [arr count]; i++) {
+        for (NSUInteger i=0; i < [arr count]; i++) {
             [nilArray addObject:[NSNull null]];
         }
         dispatch_semaphore_t itemLock = dispatch_semaphore_create(1);
         dispatch_apply([arr count], F_queue, ^(size_t i) {
             BOOL keep = block([arr objectAtIndex:i]);
             if (keep) {
-                dispatch_semaphore_wait(itemLock, DISPATCH_TIME_FOREVER);                
+                dispatch_semaphore_wait(itemLock, DISPATCH_TIME_FOREVER);
                 [nilArray replaceObjectAtIndex:i withObject:[arr objectAtIndex:i]];
-                dispatch_semaphore_signal(itemLock);                
+                dispatch_semaphore_signal(itemLock);
             }
         });
         [nilArray removeObjectIdenticalTo:[NSNull null]];
         return [NSArray arrayWithArray:nilArray];
     }
     else {
-        NSMutableArray *mutArr = [NSMutableArray array];        
+        NSMutableArray *mutArr = [NSMutableArray array];
         for (id obj in arr) {
             if (block(obj)) [mutArr addObject:obj];
-        }        
-        return [NSArray arrayWithArray:mutArr];        
+        }
+        return [NSArray arrayWithArray:mutArr];
     }
 }
 
@@ -186,7 +187,7 @@ static dispatch_queue_t F_queue;
     else {
         for (id key in dict) {
             if (block(key, [dict objectForKey:key])) [mutDict setObject:[dict objectForKey:key]  forKey:key];
-        }        
+        }
     }
     return [NSDictionary dictionaryWithDictionary:mutDict];
 }
@@ -194,16 +195,16 @@ static dispatch_queue_t F_queue;
 + (NSArray *) rejectArray:(NSArray *) arr withBlock:(BoolArrayBlock) block {
     if (F_concurrently) {
         NSMutableArray *nilArray = [NSMutableArray arrayWithCapacity:[arr count]];
-        for (int i=0; i < [arr count]; i++) {
+        for (NSUInteger i=0; i < [arr count]; i++) {
             [nilArray addObject:[NSNull null]];
         }
         dispatch_semaphore_t itemLock = dispatch_semaphore_create(1);
         dispatch_apply([arr count], F_queue, ^(size_t i) {
             BOOL keep = !block([arr objectAtIndex:i]);
             if (keep) {
-                dispatch_semaphore_wait(itemLock, DISPATCH_TIME_FOREVER);                
+                dispatch_semaphore_wait(itemLock, DISPATCH_TIME_FOREVER);
                 [nilArray replaceObjectAtIndex:i withObject:[arr objectAtIndex:i]];
-                dispatch_semaphore_signal(itemLock);                
+                dispatch_semaphore_signal(itemLock);
             }
         });
         [nilArray removeObjectIdenticalTo:[NSNull null]];
@@ -214,7 +215,7 @@ static dispatch_queue_t F_queue;
         for (id obj in arr) {
             if (!block(obj)) [mutArr addObject:obj];
         }
-        return [NSArray arrayWithArray:mutArr];        
+        return [NSArray arrayWithArray:mutArr];
     }
 }
 
@@ -236,14 +237,14 @@ static dispatch_queue_t F_queue;
     else {
         for (id key in dict) {
             if (!block(key, [dict objectForKey:key])) [mutDict setObject:[dict objectForKey:key]  forKey:key];
-        }        
+        }
     }
     return [NSDictionary dictionaryWithDictionary:mutDict];
 }
 
 + (BOOL) allInArray:(NSArray *) arr withBlock:(BoolArrayBlock) block {
     __block BOOL validForAll = true;
-    
+
     if (F_concurrently) {
         dispatch_apply([arr count], F_queue, ^(size_t i) {
             if (!validForAll) return;
@@ -254,14 +255,14 @@ static dispatch_queue_t F_queue;
         for (id obj in arr) {
             validForAll = (validForAll && block(obj));
             if (!validForAll) break;
-        }        
+        }
     }
     return validForAll;
 }
 
 + (BOOL) allInDictionary:(NSDictionary *) dict withBlock:(BoolDictionaryBlock) block {
     __block BOOL validForAll = true;
-    
+
     if (F_concurrently) {
         NSArray *keys = [dict allKeys];
         dispatch_apply([keys count], F_queue, ^(size_t i) {
@@ -274,14 +275,14 @@ static dispatch_queue_t F_queue;
         for (id key in dict) {
             validForAll = (validForAll && block(key, [dict objectForKey:key]));
             if (!validForAll) break;
-        }        
+        }
     }
     return validForAll;
 }
 
 + (BOOL) anyInArray:(NSArray *) arr withBlock:(BoolArrayBlock) block {
     __block BOOL validForAny = false;
-    
+
     if (F_concurrently) {
         dispatch_apply([arr count], F_queue, ^(size_t i) {
             if (validForAny) return;
@@ -292,34 +293,34 @@ static dispatch_queue_t F_queue;
         for (id obj in arr) {
             validForAny = (validForAny || block(obj));
             if (validForAny) break;
-        }        
+        }
     }
     return validForAny;
 }
 
 + (BOOL) anyInDictionary:(NSDictionary *) dict withBlock:(BoolDictionaryBlock) block {
     __block BOOL validForAny = false;
-    
+
     if (F_concurrently) {
         NSArray *keys = [dict allKeys];
         dispatch_apply([keys count], F_queue, ^(size_t i) {
             if (validForAny) return;
             id key = [keys objectAtIndex:i];
             validForAny = (validForAny || block(key, [dict objectForKey:key]));
-        });        
+        });
     }
     else {
         for (id key in dict) {
             validForAny = (validForAny || block(key, [dict objectForKey:key]));
             if (validForAny) break;
-        }        
+        }
     }
-    return validForAny;    
+    return validForAny;
 }
 
 + (NSNumber *) countInArray:(NSArray *) arr withBlock:(BoolArrayBlock) block {
     __block NSInteger ctr = 0;
-    
+
     if (F_concurrently) {
         dispatch_apply([arr count], F_queue, ^(size_t i) {
             if (block([arr objectAtIndex:i])) ctr++;
@@ -328,14 +329,14 @@ static dispatch_queue_t F_queue;
     else {
         for (id obj in arr) {
             if(block(obj)) ctr++;
-        }        
+        }
     }
-    return [NSNumber numberWithInt:ctr];
+    return [NSNumber numberWithInteger:ctr];
 }
 
 + (NSNumber *) countInDictionary:(NSDictionary *) dict withBlock:(BoolDictionaryBlock) block {
     __block NSInteger ctr = 0;
-    
+
     if (F_concurrently) {
         NSArray *keys = [dict allKeys];
         dispatch_apply([keys count], F_queue, ^(size_t i) {
@@ -346,16 +347,16 @@ static dispatch_queue_t F_queue;
     else {
         for (id key in dict) {
             if (block(key, [dict objectForKey:key])) ctr++;
-        }        
+        }
     }
-    return [NSNumber numberWithInt:ctr];
+    return [NSNumber numberWithInteger:ctr];
 }
 
 
 
 + (id) maxArray:(NSArray *) arr withBlock:(CompareArrayBlock) block {
     if ([arr count]<1) return NULL;
-    
+
     id biggest = [arr objectAtIndex:0];
     for (id obj in arr) {
         if (block(biggest, obj) == NSOrderedAscending) biggest = obj;
@@ -365,7 +366,7 @@ static dispatch_queue_t F_queue;
 
 + (id) maxDict:(NSDictionary *) dict withBlock:(CompareDictBlock) block {
     if ([dict count] < 1) return NULL;
-    
+
     id biggest = NULL;
     id biggestKey = @"";
     for (id key in dict) {
@@ -383,7 +384,7 @@ static dispatch_queue_t F_queue;
 
 + (id) minArray:(NSArray *) arr withBlock:(CompareArrayBlock) block {
     if ([arr count]<1) return NULL;
-    
+
     id smallest = [arr objectAtIndex:0];
     for (id obj in arr) {
         if (block(smallest, obj) == NSOrderedDescending) smallest = obj;
@@ -393,7 +394,7 @@ static dispatch_queue_t F_queue;
 
 + (id) minDict:(NSDictionary *) dict withBlock:(CompareDictBlock) block {
     if ([dict count] < 1) return NULL;
-    
+
     id smallest = NULL;
     id smallestKey = @"";
     for (id key in dict) {
@@ -406,7 +407,7 @@ static dispatch_queue_t F_queue;
             smallestKey = key;
         }
     }
-    return smallest;   
+    return smallest;
 }
 
 + (NSDictionary *) groupArray:(NSArray *) arr withBlock:(MapArrayBlock) block {
@@ -419,10 +420,10 @@ static dispatch_queue_t F_queue;
         NSMutableArray *itemsInThisGroup = [mutDictOfMutArrays objectForKey:transformed];
         [itemsInThisGroup addObject:obj];
     }
-    
+
     NSMutableDictionary *mutDictOfArrays = [NSMutableDictionary dictionary];
     for (id key in mutDictOfMutArrays) {
-        
+
         NSMutableArray *mutArr = (NSMutableArray *) [mutDictOfMutArrays objectForKey:key];
         [mutDictOfArrays setObject:[NSArray arrayWithArray:mutArr] forKey:key];
     }
@@ -457,7 +458,7 @@ static dispatch_queue_t F_queue;
 
 + (NSArray *) mapRangeFrom:(NSInteger) from To:(NSInteger) to withBlock:(MapIntBlock) block {
     NSMutableArray *mutArr = [NSMutableArray arrayWithCapacity:(to-from)];
-    
+
     if (F_concurrently) {
         for (NSInteger i=from; i < to; i++) {
             [mutArr addObject:[NSNull null]];
@@ -473,9 +474,9 @@ static dispatch_queue_t F_queue;
     else {
         for (NSInteger i=from; i<to; i++) {
             [mutArr addObject:block(i)];
-        }        
+        }
     }
-    return [NSArray arrayWithArray:mutArr];   
+    return [NSArray arrayWithArray:mutArr];
 }
 
 @end
